@@ -63,6 +63,8 @@
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
+  .row + .row { margin-top: 8px; }
+  .row.three { grid-template-columns: 1fr 1fr 1fr; }
   button {
     appearance: none;
     background: var(--card);
@@ -129,6 +131,11 @@
     <div class="row">
       <button data-btn="brightness_down"><span class="sym">−</span></button>
       <button data-btn="brightness_up"><span class="sym">+</span></button>
+    </div>
+    <div class="row three">
+      <button data-btn="brightness_10">10%</button>
+      <button data-btn="brightness_50">50%</button>
+      <button data-btn="brightness_100">100%</button>
     </div>
   </div>
 

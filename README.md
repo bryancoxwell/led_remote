@@ -2,7 +2,7 @@
 
 Reverse-engineered transmitter for the Rayrun RM12 LED remote control. Replaces the physical remote with a CLI that emits the same 433.92 MHz OOK packets via a SoapySDR-supported SDR.
 
-All seven buttons are decoded and reproduced over the air: `turn_on`, `turn_off`, `brightness_up`, `brightness_down`, `temperature_up`, `temperature_down`, `pair`.
+Buttons decoded and reproduced over the air: `turn_on`, `turn_off`, `brightness_up`, `brightness_down`, `brightness_10`, `brightness_50`, `brightness_100`, `temperature_up`, `temperature_down`, `pair`.
 
 ## Requirements
 
@@ -94,6 +94,43 @@ cargo run -- reset-counter 0   # next press will use X=0
 | `-d <args>` | SoapySDR device args (e.g. `driver=uhd`, `driver=lime`) | first available |
 | `--lead-ms` / `--trail-ms` | silence padding around the burst | 5 / 20 |
 
+## Web UI / HomeKit
+
+`serve` runs a single-process bridge that exposes every button over HTTP and, optionally, as a HomeKit Lightbulb accessory. The SDR is opened once at startup and reused for every press across both surfaces.
+
+```sh
+# Web UI only on http://127.0.0.1:8080
+cargo run -- serve -g 50
+
+# Web UI + HomeKit (accessory name "Kitchen Lights", default pin 831-94-672)
+cargo run -- serve -g 50 --homekit
+```
+
+Web-UI flags: `--bind <addr>`, plus all `transmit` flags. `POST /press/<button>` and `POST /raw/<hex|dec>` are the two endpoints; the page also has a free-form input for probing arbitrary command bytes.
+
+HomeKit flags (require `--homekit`):
+
+| flag | meaning | default |
+|---|---|---|
+| `--homekit-name` | accessory name shown in the Home app | `Kitchen Lights` |
+| `--homekit-pin` | 8-digit setup pin (dashes optional); trivial pins (`12345678`, all-same) rejected | `831-94-672` |
+| `--homekit-state-dir` | pairing keys + paired-controller list | `$XDG_STATE_HOME/led_remote/homekit` |
+
+The Lightbulb accessory exposes:
+
+- **On** → `turn_on` / `turn_off`
+- **Brightness** → snaps to the nearest of `brightness_10` / `brightness_50` / `brightness_100`. The Home app slider can land on any value 0–100 but the LED only has those three absolute setpoints; anything else rounds. Step-based `brightness_up`/`brightness_down` are not exposed via HomeKit (they need shadow-state calibration first).
+
+To re-pair from a fresh state, remove the state directory:
+
+```sh
+rm -rf ~/.local/state/led_remote/homekit
+```
+
+This unpairs every iPhone — they'll need to add the accessory again.
+
+Implementation note: HomeKit support depends on a fork of [`hap`](https://github.com/ihciah/hap-rs) pinned by commit (the upstream pre-release has a `links="ifaddrs"` collision in its dep tree).
+
 ## Protocol
 
 OOK/ASK at 433.92 MHz (per the RM12 FCC filing; captures were taken at 433.87 MHz). 40 data bits per packet, MSB first.
@@ -123,10 +160,10 @@ Frame (sent 3–5× per button press):
 | `temperature_down` | 0x06 | 0xF3A20657F0 |
 | `temperature_up` | 0x08 | 0xF3A20859F0 |
 | `brightness_down` | 0x0A | 0xF3A20A5BF0 |
+| `brightness_10` | 0x0C | 0xF3A20C5DF0 |
+| `brightness_50` | 0x0D | 0xF3A20D5CF0 |
+| `brightness_100` | 0x0E | 0xF3A20E5FF0 |
 | `pair` | 0x20 | 0xF3A22071F0 |
-
-Other observed command bytes:
-- `0x0C` — sets brightness to minimum (discovered while probing for `brightness_up`)
 
 ## Project layout
 

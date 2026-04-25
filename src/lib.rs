@@ -21,6 +21,7 @@
 
 use num_complex::Complex32;
 
+pub mod homekit;
 pub mod serve;
 pub mod transmit;
 
@@ -47,6 +48,9 @@ pub enum Button {
     TemperatureUp,
     BrightnessDown,
     BrightnessUp,
+    Brightness10,
+    Brightness50,
+    Brightness100,
     Pair,
 }
 
@@ -58,6 +62,9 @@ impl Button {
         Button::TemperatureUp,
         Button::BrightnessDown,
         Button::BrightnessUp,
+        Button::Brightness10,
+        Button::Brightness50,
+        Button::Brightness100,
         Button::Pair,
     ];
 
@@ -69,6 +76,9 @@ impl Button {
             Button::TemperatureUp => 0x08,
             Button::BrightnessDown => 0x0A,
             Button::BrightnessUp => 0x04,
+            Button::Brightness10 => 0x0C,
+            Button::Brightness50 => 0x0D,
+            Button::Brightness100 => 0x0E,
             Button::Pair => 0x20,
         }
     }
@@ -81,6 +91,9 @@ impl Button {
             Button::TemperatureUp => "temperature_up",
             Button::BrightnessDown => "brightness_down",
             Button::BrightnessUp => "brightness_up",
+            Button::Brightness10 => "brightness_10",
+            Button::Brightness50 => "brightness_50",
+            Button::Brightness100 => "brightness_100",
             Button::Pair => "pair",
         }
     }
@@ -389,6 +402,9 @@ mod tests {
         assert_eq!(build_packet(Button::TemperatureUp, 0), 0xF3A2_0859_F0);
         assert_eq!(build_packet(Button::BrightnessDown, 0), 0xF3A2_0A5B_F0);
         assert_eq!(build_packet(Button::BrightnessUp, 0), 0xF3A2_0455_F0);
+        assert_eq!(build_packet(Button::Brightness10, 0), 0xF3A2_0C5D_F0);
+        assert_eq!(build_packet(Button::Brightness50, 0), 0xF3A2_0D5C_F0);
+        assert_eq!(build_packet(Button::Brightness100, 0), 0xF3A2_0E5F_F0);
         assert_eq!(build_packet(Button::Pair, 0), 0xF3A2_2071_F0);
 
         // turn_on capture's first observed packet was X=1 → last byte 0xE1

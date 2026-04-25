@@ -121,6 +121,20 @@ enum Cmd {
         /// Trailing silence (ms) — let TX buffer drain before disabling
         #[arg(long, default_value_t = 20.0)]
         trail_ms: f32,
+        /// Also advertise as a HomeKit Lightbulb accessory.
+        #[arg(long)]
+        homekit: bool,
+        /// HomeKit accessory name shown in the Home app
+        #[arg(long, default_value = "Kitchen Lights")]
+        homekit_name: String,
+        /// HomeKit setup pin (8 digits, with or without dashes — e.g. 831-94-672).
+        /// Trivial pins (12345678, all-same digits, etc.) are rejected.
+        #[arg(long, default_value = "831-94-672")]
+        homekit_pin: String,
+        /// HomeKit pairing state directory.
+        /// Default: $XDG_STATE_HOME/led_remote/homekit or ~/.local/state/led_remote/homekit
+        #[arg(long)]
+        homekit_state_dir: Option<PathBuf>,
     },
     /// List SDR devices visible to SoapySDR.
     Devices,
@@ -266,9 +280,26 @@ fn main() -> std::io::Result<()> {
             antenna,
             lead_ms,
             trail_ms,
+            homekit,
+            homekit_name,
+            homekit_pin,
+            homekit_state_dir,
         } => {
+            use led_remote::homekit::{HomekitConfig, default_state_dir, parse_pin};
             use led_remote::serve::{ServeConfig, run as serve_run};
             use led_remote::transmit::TxParams;
+            let hk = if homekit {
+                let pin = parse_pin(&homekit_pin).map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, e)
+                })?;
+                Some(HomekitConfig {
+                    name: homekit_name,
+                    pin,
+                    state_dir: homekit_state_dir.unwrap_or_else(default_state_dir),
+                })
+            } else {
+                None
+            };
             let cfg = ServeConfig {
                 bind,
                 tx: TxParams {
@@ -283,6 +314,7 @@ fn main() -> std::io::Result<()> {
                 lead_ms,
                 trail_ms,
                 counter_state,
+                homekit: hk,
             };
             serve_run(cfg)
         }

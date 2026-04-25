@@ -5,7 +5,12 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+# Crates.io's hap 0.1.0-pre.15 has a links="ifaddrs" collision (get_if_addrs
+# vs if-addrs both pulled in transitively). ihciah's fork dropped get_if_addrs
+# and bumped libmdns; pin to a known-good commit.
+hap = { git = "https://github.com/ihciah/hap-rs", rev = "c05dbdcc" }
 num-complex = "0.4"
 serde_json = "1"
 soapysdr = "0.4"
 tiny_http = "0.12"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
