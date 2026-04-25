@@ -24,10 +24,34 @@ use hap::{
 use crate::Button;
 use crate::serve::PressContext;
 
-/// Locally-administered, unicast MAC used as the stable HAP `device_id` on
-/// first run. The persisted storage config is the source of truth after that
-/// — changing this constant won't re-key already-paired controllers.
-const HAP_DEVICE_ID: [u8; 6] = [0x02, 0x4C, 0x45, 0x44, 0x01, 0x00];
+/// Generate a fresh locally-administered, unicast MAC. Used as the HAP
+/// `device_id` on first run only — the persisted storage config holds it
+/// after that, so the identity is stable across restarts but new every time
+/// the state directory is wiped (which is what we want when retrying after
+/// a failed pair: iOS's internal HMAccessory cache keys on this MAC, and
+/// reusing a previously-seen MAC can leave `nodeID` null on the iOS side).
+fn fresh_device_id() -> [u8; 6] {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::time::SystemTime;
+
+    let mut hasher = DefaultHasher::new();
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .hash(&mut hasher);
+    std::process::id().hash(&mut hasher);
+    let h = hasher.finish().to_le_bytes();
+    [
+        (h[0] & 0xFC) | 0x02, // bit0=0 (unicast), bit1=1 (locally administered)
+        h[1],
+        h[2],
+        h[3],
+        h[4],
+        h[5],
+    ]
+}
 
 #[derive(Clone)]
 pub struct HomekitConfig {
@@ -109,10 +133,15 @@ async fn run(ctx: PressContext, cfg: HomekitConfig) -> HapResult<()> {
             c
         }
         Err(_) => {
+            let mac = fresh_device_id();
+            eprintln!(
+                "homekit: no saved config, generated device_id {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+            );
             let c = Config {
                 pin: Pin::new(cfg.pin)?,
                 name: cfg.name.clone(),
-                device_id: MacAddress::from(HAP_DEVICE_ID),
+                device_id: MacAddress::from(mac),
                 category: AccessoryCategory::Lightbulb,
                 ..Default::default()
             };
@@ -132,10 +161,7 @@ async fn run(ctx: PressContext, cfg: HomekitConfig) -> HapResult<()> {
             name: cfg.name.clone(),
             manufacturer: "led_remote".to_string(),
             model: "RM12 Bridge".to_string(),
-            serial_number: format!(
-                "LRRM12-{:02X}{:02X}{:02X}",
-                HAP_DEVICE_ID[3], HAP_DEVICE_ID[4], HAP_DEVICE_ID[5]
-            ),
+            serial_number: format!("LRRM12-{}", config.device_id),
             firmware_revision: Some(env!("CARGO_PKG_VERSION").to_string()),
             ..Default::default()
         },
