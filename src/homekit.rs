@@ -121,10 +121,22 @@ async fn run(ctx: PressContext, cfg: HomekitConfig) -> HapResult<()> {
         }
     };
 
+    // Fill out every required AccessoryInformation field. The fork's defaults
+    // leave manufacturer/model/serial as the literal string "undefined" and
+    // firmware_revision as None — iOS will reject the accessory with
+    // "Unable to add accessory. This accessory cannot be used with HomeKit"
+    // when Firmware Revision is missing.
     let mut bulb = LightbulbAccessory::new(
         1,
         AccessoryInformation {
             name: cfg.name.clone(),
+            manufacturer: "led_remote".to_string(),
+            model: "RM12 Bridge".to_string(),
+            serial_number: format!(
+                "LRRM12-{:02X}{:02X}{:02X}",
+                HAP_DEVICE_ID[3], HAP_DEVICE_ID[4], HAP_DEVICE_ID[5]
+            ),
+            firmware_revision: Some(env!("CARGO_PKG_VERSION").to_string()),
             ..Default::default()
         },
     )?;
