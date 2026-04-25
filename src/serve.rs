@@ -72,14 +72,23 @@ fn route(
     counter_path: &Path,
     tx: &mut Transmitter,
 ) -> Resp {
-    match (method, url) {
-        (Method::Get, "/") | (Method::Get, "/index.html") => html(INDEX_HTML),
-        (Method::Post, url) => match url.strip_prefix("/press/") {
-            Some(name) if !name.is_empty() && !name.contains('/') => {
-                press(name, cfg, counter_path, tx)
+    match method {
+        Method::Get if matches!(url, "/" | "/index.html") => html(INDEX_HTML),
+        Method::Post => {
+            if let Some(name) = url.strip_prefix("/press/")
+                && !name.is_empty()
+                && !name.contains('/')
+            {
+                return press(name, cfg, counter_path, tx);
             }
-            _ => not_found(),
-        },
+            if let Some(value) = url.strip_prefix("/raw/")
+                && !value.is_empty()
+                && !value.contains('/')
+            {
+                return press_raw(value, cfg, counter_path, tx);
+            }
+            not_found()
+        }
         _ => not_found(),
     }
 }
@@ -98,11 +107,12 @@ fn press(name: &str, cfg: &ServeConfig, counter_path: &Path, tx: &mut Transmitte
             );
         }
     };
-    eprintln!("press {} (X={})", btn.name(), counter);
+    let repeats = repeats_for(btn, cfg.repeats);
+    eprintln!("press {} (X={}, reps={})", btn.name(), counter, repeats);
     match tx.transmit_press(
         btn.command(),
         counter,
-        cfg.repeats,
+        repeats,
         cfg.lead_ms,
         cfg.trail_ms,
     ) {
@@ -120,6 +130,65 @@ fn press(name: &str, cfg: &ServeConfig, counter_path: &Path, tx: &mut Transmitte
             eprintln!("  transmit failed: {e}");
             json_resp(500, &json!({"ok": false, "error": e.to_string()}).to_string())
         }
+    }
+}
+
+fn press_raw(value: &str, cfg: &ServeConfig, counter_path: &Path, tx: &mut Transmitter) -> Resp {
+    let cmd = match parse_byte(value) {
+        Ok(b) => b,
+        Err(e) => return json_resp(400, &json!({"ok": false, "error": e}).to_string()),
+    };
+    let counter = match bump_counter(counter_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return json_resp(
+                500,
+                &json!({"ok": false, "error": format!("counter: {e}")}).to_string(),
+            );
+        }
+    };
+    let label = format!("0x{cmd:02X}");
+    eprintln!("raw {label} (X={counter})");
+    match tx.transmit_press(cmd, counter, cfg.repeats, cfg.lead_ms, cfg.trail_ms) {
+        Ok(samples) => json_resp(
+            200,
+            &json!({
+                "ok": true,
+                "button": label,
+                "counter": counter,
+                "samples": samples,
+            })
+            .to_string(),
+        ),
+        Err(e) => {
+            eprintln!("  transmit failed: {e}");
+            json_resp(500, &json!({"ok": false, "error": e.to_string()}).to_string())
+        }
+    }
+}
+
+/// Accepts `0x0C` / `0X0c` (hex) or `12` (decimal). Mirrors the CLI's `--cmd`.
+fn parse_byte(s: &str) -> Result<u8, String> {
+    let s = s.trim();
+    if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u8::from_str_radix(rest, 16).map_err(|e| format!("invalid hex byte '{s}': {e}"))
+    } else {
+        s.parse::<u8>()
+            .map_err(|e| format!("invalid byte '{s}': {e}"))
+    }
+}
+
+/// Repeats per press. Brightness and temperature are level-changing — each
+/// press should bump the LED by one step, so we send a single packet and let
+/// the receiver's counter dedupe handle the rest. Power and pair stay at the
+/// configured default for reliability.
+fn repeats_for(btn: Button, default: u32) -> u32 {
+    match btn {
+        Button::BrightnessDown
+        | Button::BrightnessUp
+        | Button::TemperatureDown
+        | Button::TemperatureUp => 1,
+        _ => default,
     }
 }
 

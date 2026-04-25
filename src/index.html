@@ -77,9 +77,22 @@
   }
   button:hover { background: var(--card-hover); border-color: var(--accent); }
   button:active { transform: scale(0.98); }
-  button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  button:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
   button.full { grid-column: 1 / -1; }
   button.muted { color: var(--muted); }
+  .raw-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  input[type="text"] {
+    appearance: none;
+    background: var(--card);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    font: inherit;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-width: 0;
+  }
+  input[type="text"]:focus { outline: none; border-color: var(--accent); }
   .sym { font-size: 20px; line-height: 1; }
   #status {
     margin-top: 22px;
@@ -125,23 +138,39 @@
     </div>
   </div>
 
+  <div class="group">
+    <div class="label">Custom command</div>
+    <form id="raw" class="raw-row">
+      <input id="raw-input" type="text" placeholder="0x0C or 12" autocomplete="off" spellcheck="false">
+      <button type="submit">Send</button>
+    </form>
+  </div>
+
   <div id="status">ready</div>
 </main>
 
 <script>
   const status = document.getElementById('status');
-  const buttons = document.querySelectorAll('button[data-btn]');
+  const allButtons = document.querySelectorAll('button');
+  const namedButtons = document.querySelectorAll('button[data-btn]');
+  const rawForm = document.getElementById('raw');
+  const rawInput = document.getElementById('raw-input');
 
   function setStatus(msg, kind) {
     status.textContent = msg;
     status.className = kind || '';
   }
 
-  async function press(name) {
-    buttons.forEach(b => b.disabled = true);
-    setStatus(`sending ${name}…`);
+  function setBusy(busy) {
+    allButtons.forEach(b => b.disabled = busy);
+    rawInput.disabled = busy;
+  }
+
+  async function send(label, url) {
+    setBusy(true);
+    setStatus(`sending ${label}…`);
     try {
-      const r = await fetch(`/press/${name}`, { method: 'POST' });
+      const r = await fetch(url, { method: 'POST' });
       const j = await r.json();
       if (j.ok) {
         setStatus(`sent ${j.button} (X=${j.counter})`, 'ok');
@@ -151,11 +180,20 @@
     } catch (e) {
       setStatus(`error: ${e.message || e}`, 'err');
     } finally {
-      buttons.forEach(b => b.disabled = false);
+      setBusy(false);
     }
   }
 
-  buttons.forEach(b => b.addEventListener('click', () => press(b.dataset.btn)));
+  namedButtons.forEach(b =>
+    b.addEventListener('click', () => send(b.dataset.btn, `/press/${b.dataset.btn}`))
+  );
+
+  rawForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = rawInput.value.trim();
+    if (!v) return;
+    send(v, `/raw/${encodeURIComponent(v)}`);
+  });
 </script>
 </body>
 </html>
