@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
 # Crates.io's hap 0.1.0-pre.15 has a links="ifaddrs" collision (get_if_addrs
 # vs if-addrs both pulled in transitively). ihciah's fork dropped get_if_addrs
 # and bumped libmdns; pin to a known-good commit.

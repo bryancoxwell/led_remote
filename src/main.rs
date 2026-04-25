@@ -167,6 +167,11 @@ fn resolve_counter(
 }
 
 fn main() -> std::io::Result<()> {
+    // hap-rs and libmdns both use the `log` crate. Honor RUST_LOG (default
+    // `info`) so `RUST_LOG=hap=debug,libmdns=debug` surfaces pairing/mDNS
+    // diagnostics. A no-op for everything else since none of our own code
+    // logs through `log`.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Encode {
