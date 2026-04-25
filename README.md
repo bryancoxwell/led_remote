@@ -1,8 +1,8 @@
 # led_remote
 
-Reverse-engineered transmitter for the Rayrun RM12 LED remote control. Replaces the physical remote with a CLI that emits the same 433.86 MHz OOK packets via a SoapySDR-supported SDR.
+Reverse-engineered transmitter for the Rayrun RM12 LED remote control. Replaces the physical remote with a CLI that emits the same 433.92 MHz OOK packets via a SoapySDR-supported SDR.
 
-All six buttons are decoded and reproduced over the air: `turn_on`, `turn_off`, `brightness_up`, `brightness_down`, `temperature_up`, `temperature_down`.
+All seven buttons are decoded and reproduced over the air: `turn_on`, `turn_off`, `brightness_up`, `brightness_down`, `temperature_up`, `temperature_down`, `pair`.
 
 ## Requirements
 
@@ -73,23 +73,30 @@ Useful flags (apply to both `encode` and `transmit`):
 
 | flag | meaning | default |
 |---|---|---|
-| `-c X` | 4-bit press counter (receiver appears to ignore, but the protocol carries it) | 0 |
+| `-c X` | 4-bit press counter override; bypasses (and does not advance) the persistent state | auto from state |
+| `--counter-state <path>` | counter state file | `$XDG_STATE_HOME/led_remote/counter` or `~/.local/state/led_remote/counter` |
 | `-r N` | packet repetitions per press | 5 |
 | `-s Hz` | sample rate | 500000 |
 | `--cmd <hex\|dec>` | override the command byte; for probing unknown codes | — |
+
+The receiver enforces the counter as a replay defense — once it's seen a given X from this device_id, it ignores future packets unless the counter advances. The CLI keeps a single 4-bit counter in `~/.local/state/led_remote/counter` and bumps it (mod 16) on every `encode` / `transmit`. After re-pairing the receiver, sync the local counter explicitly:
+
+```sh
+cargo run -- reset-counter 0   # next press will use X=0
+```
 
 `transmit` adds:
 
 | flag | meaning | default |
 |---|---|---|
 | `-g dB` | TX gain — range is per-SDR (B200mini 0–89.75; LimeSDR Mini −12–64) | 50 |
-| `-f Hz` | carrier frequency | 433870000 |
+| `-f Hz` | carrier frequency | 433920000 |
 | `-d <args>` | SoapySDR device args (e.g. `driver=uhd`, `driver=lime`) | first available |
 | `--lead-ms` / `--trail-ms` | silence padding around the burst | 5 / 20 |
 
 ## Protocol
 
-OOK/ASK at ~433.86 MHz. 40 data bits per packet, MSB first.
+OOK/ASK at 433.92 MHz (per the RM12 FCC filing; captures were taken at 433.87 MHz). 40 data bits per packet, MSB first.
 
 ```
 Packet (40 bits):
@@ -116,6 +123,7 @@ Frame (sent 3–5× per button press):
 | `temperature_down` | 0x06 | 0xF3A20657F0 |
 | `temperature_up` | 0x08 | 0xF3A20859F0 |
 | `brightness_down` | 0x0A | 0xF3A20A5BF0 |
+| `pair` | 0x20 | 0xF3A22071F0 |
 
 Other observed command bytes:
 - `0x0C` — sets brightness to minimum (discovered while probing for `brightness_up`)

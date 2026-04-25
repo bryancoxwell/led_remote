@@ -67,3 +67,27 @@ fn decodes_each_capture_to_expected_packets() {
         }
     }
 }
+
+/// Pair was recorded at a lower SNR — the slicer can't recover every repeat
+/// cleanly, so we settle for a presence check: for each X in 0..=4 (the press
+/// counter sequence in the capture), at least one decoded packet must match
+/// `build_packet(Pair, X)`.
+#[test]
+fn pair_capture_contains_expected_packets() {
+    let cap = read_capture(Button::Pair.name(), captures_dir())
+        .unwrap_or_else(|e| panic!("failed to read pair capture: {e}"));
+    let binary = slice_envelope(&cap.samples, cap.sample_rate, 20.0, 0.30);
+    let runs = run_lengths(&binary);
+    let packets = decode_packets(&runs, cap.sample_rate);
+    assert!(
+        !packets.is_empty(),
+        "pair: slicer recovered zero packets — the capture itself is broken"
+    );
+    for x in 0u8..=4 {
+        let expected = build_packet(Button::Pair, x);
+        assert!(
+            packets.contains(&expected),
+            "pair: no clean decode for X={x} (expected 0x{expected:010X}); decoded: {packets:?}"
+        );
+    }
+}

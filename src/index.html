@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED remote</title>
+<style>
+  :root {
+    color-scheme: dark light;
+    --bg: #0f1115;
+    --fg: #e6e7ea;
+    --muted: #8a8f99;
+    --card: #1a1d24;
+    --card-hover: #21252e;
+    --border: #2a2f3a;
+    --accent: #6aa9ff;
+    --ok: #5fdc8d;
+    --err: #ff7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f5f7;
+      --fg: #1a1d24;
+      --muted: #6a6f79;
+      --card: #ffffff;
+      --card-hover: #f0f1f4;
+      --border: #e0e3ea;
+      --accent: #2e6df5;
+      --ok: #1f9d55;
+      --err: #c0392b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px;
+    min-height: 100vh;
+  }
+  main { width: 100%; max-width: 360px; }
+  h1 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin: 0 0 24px;
+  }
+  .group { margin-bottom: 14px; }
+  .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 6px 2px;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  button {
+    appearance: none;
+    background: var(--card);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 100ms, border-color 100ms, transform 60ms;
+  }
+  button:hover { background: var(--card-hover); border-color: var(--accent); }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  button.full { grid-column: 1 / -1; }
+  button.muted { color: var(--muted); }
+  .sym { font-size: 20px; line-height: 1; }
+  #status {
+    margin-top: 22px;
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 1.4em;
+    font-variant-numeric: tabular-nums;
+  }
+  #status.ok  { color: var(--ok); }
+  #status.err { color: var(--err); }
+</style>
+</head>
+<body>
+<main>
+  <h1>LED remote</h1>
+
+  <div class="group">
+    <div class="row">
+      <button data-btn="turn_on">On</button>
+      <button data-btn="turn_off">Off</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="label">Temperature</div>
+    <div class="row">
+      <button data-btn="temperature_down"><span class="sym">−</span></button>
+      <button data-btn="temperature_up"><span class="sym">+</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="label">Brightness</div>
+    <div class="row">
+      <button data-btn="brightness_down"><span class="sym">−</span></button>
+      <button data-btn="brightness_up"><span class="sym">+</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="row">
+      <button class="full muted" data-btn="pair">Pair</button>
+    </div>
+  </div>
+
+  <div id="status">ready</div>
+</main>
+
+<script>
+  const status = document.getElementById('status');
+  const buttons = document.querySelectorAll('button[data-btn]');
+
+  function setStatus(msg, kind) {
+    status.textContent = msg;
+    status.className = kind || '';
+  }
+
+  async function press(name) {
+    buttons.forEach(b => b.disabled = true);
+    setStatus(`sending ${name}…`);
+    try {
+      const r = await fetch(`/press/${name}`, { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        setStatus(`sent ${j.button} (X=${j.counter})`, 'ok');
+      } else {
+        setStatus(`error: ${j.error}`, 'err');
+      }
+    } catch (e) {
+      setStatus(`error: ${e.message || e}`, 'err');
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+
+  buttons.forEach(b => b.addEventListener('click', () => press(b.dataset.btn)));
+</script>
+</body>
+</html>

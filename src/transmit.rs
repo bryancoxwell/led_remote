@@ -3,9 +3,9 @@
 //! LimeSDR).
 
 use num_complex::Complex32;
-use soapysdr::{Device, Direction};
+use soapysdr::{Device, Direction, TxStream};
 
-use crate::{Button, DEFAULT_CENTER_FREQ_HZ, DEFAULT_SAMPLE_RATE, encode_press_raw};
+use crate::{DEFAULT_CENTER_FREQ_HZ, DEFAULT_SAMPLE_RATE, encode_press_raw};
 
 #[derive(Debug, Clone)]
 pub struct TxParams {
@@ -40,36 +40,86 @@ pub fn enumerate_devices() -> Result<Vec<String>, TxError> {
     Ok(devs.iter().map(|a| a.to_string()).collect())
 }
 
-pub fn transmit_samples(samples: &[Complex32], params: &TxParams) -> Result<(), TxError> {
-    let dev = Device::new(&*params.args)?;
-
-    dev.set_sample_rate(Direction::Tx, params.channel, params.sample_rate_hz)?;
-    dev.set_frequency(Direction::Tx, params.channel, params.frequency_hz, ())?;
-    dev.set_gain(Direction::Tx, params.channel, params.gain_db)?;
-    if let Some(ant) = &params.antenna {
-        dev.set_antenna(Direction::Tx, params.channel, ant.as_str())?;
-    }
-
-    let mut tx = dev.tx_stream::<Complex32>(&[params.channel])?;
-    tx.activate(None)?;
-
-    let mtu = tx.mtu()?;
-    let mut written = 0;
-    while written < samples.len() {
-        let chunk_end = (written + mtu).min(samples.len());
-        let is_last = chunk_end == samples.len();
-        let chunk = &samples[written..chunk_end];
-        let n = tx.write(&[chunk], None, is_last, 1_000_000)?;
-        written += n;
-    }
-
-    tx.deactivate(None)?;
-    Ok(())
+/// Long-lived TX handle. Opens the device, applies all params, and activates
+/// the TX stream on construction; deactivates on drop. Reuse across many
+/// presses so we don't pay device-open / re-tune cost per button press.
+pub struct Transmitter {
+    _dev: Device,
+    stream: TxStream<Complex32>,
+    sample_rate_hz: u32,
 }
 
-/// Encode and transmit a press for a raw command byte (lead/trail silence
-/// flanking `repeats` packet repetitions). See [`transmit_press`] for the
-/// named-button variant.
+impl Transmitter {
+    pub fn open(params: &TxParams) -> Result<Self, TxError> {
+        let dev = Device::new(&*params.args)?;
+        dev.set_sample_rate(Direction::Tx, params.channel, params.sample_rate_hz)?;
+        dev.set_frequency(Direction::Tx, params.channel, params.frequency_hz, ())?;
+        dev.set_gain(Direction::Tx, params.channel, params.gain_db)?;
+        if let Some(ant) = &params.antenna {
+            dev.set_antenna(Direction::Tx, params.channel, ant.as_str())?;
+        }
+        let mut stream = dev.tx_stream::<Complex32>(&[params.channel])?;
+        stream.activate(None)?;
+        Ok(Self {
+            _dev: dev,
+            stream,
+            sample_rate_hz: params.sample_rate_hz as u32,
+        })
+    }
+
+    pub fn sample_rate_hz(&self) -> u32 {
+        self.sample_rate_hz
+    }
+
+    /// Write one burst. The final chunk is flagged end-of-burst so the
+    /// hardware drops to idle between presses.
+    pub fn transmit_samples(&mut self, samples: &[Complex32]) -> Result<(), TxError> {
+        let mtu = self.stream.mtu()?;
+        let mut written = 0;
+        while written < samples.len() {
+            let chunk_end = (written + mtu).min(samples.len());
+            let is_last = chunk_end == samples.len();
+            let chunk = &samples[written..chunk_end];
+            let n = self.stream.write(&[chunk], None, is_last, 1_000_000)?;
+            written += n;
+        }
+        Ok(())
+    }
+
+    /// Encode + transmit one press as a single end-of-burst write.
+    pub fn transmit_press(
+        &mut self,
+        cmd: u8,
+        counter: u8,
+        repeats: u32,
+        lead_silence_ms: f32,
+        trail_silence_ms: f32,
+    ) -> Result<usize, TxError> {
+        let fs = self.sample_rate_hz;
+        let lead = (lead_silence_ms * 1e-3 * fs as f32).round() as usize;
+        let trail = (trail_silence_ms * 1e-3 * fs as f32).round() as usize;
+        let zero = Complex32::new(0.0, 0.0);
+
+        let press = encode_press_raw(cmd, counter, repeats, fs);
+        let mut samples = Vec::with_capacity(lead + press.len() + trail);
+        samples.resize(lead, zero);
+        samples.extend(press);
+        samples.resize(samples.len() + trail, zero);
+
+        let n = samples.len();
+        self.transmit_samples(&samples)?;
+        Ok(n)
+    }
+}
+
+impl Drop for Transmitter {
+    fn drop(&mut self) {
+        let _ = self.stream.deactivate(None);
+    }
+}
+
+/// One-shot helper: open the SDR, transmit one press, drop the device.
+/// Used by the CLI's `transmit` subcommand.
 pub fn transmit_press_raw(
     cmd: u8,
     counter: u8,
@@ -78,36 +128,6 @@ pub fn transmit_press_raw(
     trail_silence_ms: f32,
     params: &TxParams,
 ) -> Result<usize, TxError> {
-    let fs = params.sample_rate_hz as u32;
-    let lead = (lead_silence_ms * 1e-3 * fs as f32).round() as usize;
-    let trail = (trail_silence_ms * 1e-3 * fs as f32).round() as usize;
-    let zero = Complex32::new(0.0, 0.0);
-
-    let press = encode_press_raw(cmd, counter, repeats, fs);
-    let mut samples = Vec::with_capacity(lead + press.len() + trail);
-    samples.resize(lead, zero);
-    samples.extend(press);
-    samples.resize(samples.len() + trail, zero);
-
-    let n = samples.len();
-    transmit_samples(&samples, params)?;
-    Ok(n)
-}
-
-pub fn transmit_press(
-    button: Button,
-    counter: u8,
-    repeats: u32,
-    lead_silence_ms: f32,
-    trail_silence_ms: f32,
-    params: &TxParams,
-) -> Result<usize, TxError> {
-    transmit_press_raw(
-        button.command(),
-        counter,
-        repeats,
-        lead_silence_ms,
-        trail_silence_ms,
-        params,
-    )
+    let mut tx = Transmitter::open(params)?;
+    tx.transmit_press(cmd, counter, repeats, lead_silence_ms, trail_silence_ms)
 }

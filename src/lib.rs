@@ -15,16 +15,18 @@
 //!     STOP_ON     (~488 µs)
 //!     INTER_PACKET_GAP_OFF (~10.7 ms)   // only between repeats, not after last
 //!
-//! Carrier: ~433.86 MHz, OOK/ASK. Receiver is wideband-on-a-cheap-crystal so
-//! transmitting at 433.87 MHz works fine.
+//! Carrier: 433.92 MHz per the FCC filing for the RM12 (the captures were
+//! recorded at 433.87 MHz, but the receiver is wideband-on-a-cheap-crystal so
+//! either works).
 
 use num_complex::Complex32;
 
+pub mod serve;
 pub mod transmit;
 
 pub const DEVICE_ID: u16 = 0xF3A2;
 pub const DEFAULT_SAMPLE_RATE: u32 = 500_000;
-pub const DEFAULT_CENTER_FREQ_HZ: u64 = 433_870_000;
+pub const DEFAULT_CENTER_FREQ_HZ: u64 = 433_920_000;
 
 // Timing constants in microseconds (medians from histogram analysis of all 5 captures).
 pub const PREAMBLE_ON_US: f32 = 8_320.0;
@@ -45,6 +47,7 @@ pub enum Button {
     TemperatureUp,
     BrightnessDown,
     BrightnessUp,
+    Pair,
 }
 
 impl Button {
@@ -55,6 +58,7 @@ impl Button {
         Button::TemperatureUp,
         Button::BrightnessDown,
         Button::BrightnessUp,
+        Button::Pair,
     ];
 
     pub fn command(self) -> u8 {
@@ -65,6 +69,7 @@ impl Button {
             Button::TemperatureUp => 0x08,
             Button::BrightnessDown => 0x0A,
             Button::BrightnessUp => 0x04,
+            Button::Pair => 0x20,
         }
     }
 
@@ -76,6 +81,7 @@ impl Button {
             Button::TemperatureUp => "temperature_up",
             Button::BrightnessDown => "brightness_down",
             Button::BrightnessUp => "brightness_up",
+            Button::Pair => "pair",
         }
     }
 
@@ -184,6 +190,54 @@ pub fn encode_button_press(
     sample_rate: u32,
 ) -> Vec<Complex32> {
     encode_press_raw(button.command(), counter, repeats, sample_rate)
+}
+
+// ---------- Press counter persistence ----------
+//
+// The receiver tracks the 4-bit press counter X and rejects packets whose
+// counter doesn't advance — a standard replay defense. To stay in sync we
+// persist the next-counter-to-use across CLI invocations.
+
+/// Default counter state path: `$XDG_STATE_HOME/led_remote/counter` if set,
+/// otherwise `$HOME/.local/state/led_remote/counter`.
+pub fn default_counter_path() -> std::path::PathBuf {
+    if let Some(p) = std::env::var_os("XDG_STATE_HOME") {
+        return std::path::PathBuf::from(p).join("led_remote").join("counter");
+    }
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    home.join(".local/state/led_remote/counter")
+}
+
+/// Read the next 4-bit counter from `path`. Returns 0 if the file is missing.
+pub fn read_counter(path: &std::path::Path) -> std::io::Result<u8> {
+    match std::fs::read_to_string(path) {
+        Ok(s) => s
+            .trim()
+            .parse::<u8>()
+            .map(|n| n & 0x0F)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(e) => Err(e),
+    }
+}
+
+/// Write the next 4-bit counter to `path`, creating parent dirs as needed.
+pub fn write_counter(path: &std::path::Path, value: u8) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, format!("{}\n", value & 0x0F))
+}
+
+/// Read the current counter, persist `(current + 1) mod 16`, and return the
+/// counter to use for THIS press.
+pub fn bump_counter(path: &std::path::Path) -> std::io::Result<u8> {
+    let current = read_counter(path)?;
+    let next = (current + 1) & 0x0F;
+    write_counter(path, next)?;
+    Ok(current)
 }
 
 // ---------- SigMF I/O ----------
@@ -335,11 +389,38 @@ mod tests {
         assert_eq!(build_packet(Button::TemperatureUp, 0), 0xF3A2_0859_F0);
         assert_eq!(build_packet(Button::BrightnessDown, 0), 0xF3A2_0A5B_F0);
         assert_eq!(build_packet(Button::BrightnessUp, 0), 0xF3A2_0455_F0);
+        assert_eq!(build_packet(Button::Pair, 0), 0xF3A2_2071_F0);
 
         // turn_on capture's first observed packet was X=1 → last byte 0xE1
         assert_eq!(build_packet(Button::TurnOn, 1), 0xF3A2_0150_E1);
         // Counter sequence we observed in non-turn_on captures:
         assert_eq!(build_packet(Button::TurnOff, 4) & 0xFF, 0xB4);
+    }
+
+    #[test]
+    fn bump_counter_wraps_after_15() {
+        let dir = std::env::temp_dir().join(format!(
+            "led_remote_counter_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = dir.join("counter");
+
+        // Missing file → starts at 0 and persists 1.
+        assert_eq!(bump_counter(&path).unwrap(), 0);
+        assert_eq!(read_counter(&path).unwrap(), 1);
+
+        // Walk to 15.
+        for expected in 1..=15u8 {
+            assert_eq!(bump_counter(&path).unwrap(), expected);
+        }
+        // 4 bits → wraps to 0.
+        assert_eq!(read_counter(&path).unwrap(), 0);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
