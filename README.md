@@ -102,7 +102,7 @@ cargo run -- reset-counter 0   # next press will use X=0
 # Web UI only on http://127.0.0.1:8080
 cargo run -- serve -g 50
 
-# Web UI + HomeKit (accessory name "Kitchen Lights", default pin 831-94-672)
+# Web UI + HomeKit (accessory name "Kitchen Lights", random pin printed to stderr on first run)
 cargo run -- serve -g 50 --homekit
 ```
 
@@ -113,7 +113,7 @@ HomeKit flags (require `--homekit`):
 | flag | meaning | default |
 |---|---|---|
 | `--homekit-name` | accessory name shown in the Home app | `Kitchen Lights` |
-| `--homekit-pin` | 8-digit setup pin (dashes optional); trivial pins (`12345678`, all-same) rejected | `831-94-672` |
+| `--homekit-pin` | 8-digit setup pin (dashes optional); trivial pins (`12345678`, all-same) rejected. Generated randomly on first run and persisted with the rest of the pairing state — once paired, this flag is ignored | _(random)_ |
 | `--homekit-state-dir` | pairing keys + paired-controller list | `$XDG_STATE_HOME/led_remote/homekit` |
 
 The Lightbulb accessory exposes:

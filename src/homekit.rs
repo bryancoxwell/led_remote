@@ -18,6 +18,7 @@ use hap::{
     characteristic::AsyncCharacteristicCallbacks,
     futures::future::FutureExt,
     server::{IpServer, Server},
+    service::HapService,
     storage::{FileStorage, Storage},
 };
 
@@ -56,8 +57,48 @@ fn fresh_device_id() -> [u8; 6] {
 #[derive(Clone)]
 pub struct HomekitConfig {
     pub name: String,
-    pub pin: [u8; 8],
+    /// `None` means: generate a random pin on first run (when no config has
+    /// been persisted yet). Once paired, the pin lives in storage and this
+    /// field is ignored.
+    pub pin: Option<[u8; 8]>,
     pub state_dir: PathBuf,
+}
+
+/// Generate a random 8-digit pin that passes hap's trivial-pin filter.
+/// Same hash-based approach as `fresh_device_id` — non-cryptographic, but
+/// the threat model here is "local network ISM remote", so we don't need
+/// OsRng. The retry loop guards against the (≈1 in 10^7) chance of
+/// landing on one of the rejected pins.
+fn generate_pin() -> [u8; 8] {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::time::SystemTime;
+
+    for attempt in 0u64.. {
+        let mut hasher = DefaultHasher::new();
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .hash(&mut hasher);
+        std::process::id().hash(&mut hasher);
+        attempt.hash(&mut hasher);
+        let h = hasher.finish().to_le_bytes();
+        let pin = [
+            h[0] % 10,
+            h[1] % 10,
+            h[2] % 10,
+            h[3] % 10,
+            h[4] % 10,
+            h[5] % 10,
+            h[6] % 10,
+            h[7] % 10,
+        ];
+        if Pin::new(pin).is_ok() {
+            return pin;
+        }
+    }
+    unreachable!()
 }
 
 pub fn default_state_dir() -> PathBuf {
@@ -133,13 +174,21 @@ async fn run(ctx: PressContext, cfg: HomekitConfig) -> HapResult<()> {
             c
         }
         Err(_) => {
+            let pin_bytes = match cfg.pin {
+                Some(p) => p,
+                None => {
+                    let p = generate_pin();
+                    eprintln!("homekit: generated random pin {}", format_pin(p));
+                    p
+                }
+            };
             let mac = fresh_device_id();
             eprintln!(
                 "homekit: no saved config, generated device_id {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
             );
             let c = Config {
-                pin: Pin::new(cfg.pin)?,
+                pin: Pin::new(pin_bytes)?,
                 name: cfg.name.clone(),
                 device_id: MacAddress::from(mac),
                 category: AccessoryCategory::Lightbulb,
@@ -166,19 +215,55 @@ async fn run(ctx: PressContext, cfg: HomekitConfig) -> HapResult<()> {
             ..Default::default()
         },
     )?;
+    fix_lightbulb_iids(&mut bulb);
 
     register_callbacks(&mut bulb, &ctx);
 
+    let pin_display = config.pin.to_string();
     let server = IpServer::new(config, storage).await?;
     server.add_accessory(bulb).await?;
 
     eprintln!(
         "homekit: accessory '{}' ready, pin {}, state {}",
         cfg.name,
-        format_pin(cfg.pin),
+        pin_display,
         cfg.state_dir.display()
     );
     server.run_handle().await
+}
+
+/// Workaround for an iid bug in the ihciah hap-rs fork. `LightbulbAccessory::new`
+/// computes the LightbulbService's base iid from
+/// `accessory_information.get_characteristics().len()`, but `to_service`
+/// places the optional `firmware_revision` characteristic at iid=10 (its
+/// "natural" slot in `AccessoryInformationService::new`'s sparse layout) —
+/// not at the dense iid=7 the count-based formula assumes. Result: brightness
+/// (iid=10) collides with firmware_revision (iid=10) within the accessory.
+/// HAP requires iids to be unique per accessory, so iOS accepts the PIN, then
+/// fails database validation with the generic "this accessory cannot be used
+/// with HomeKit" error.
+///
+/// Fix: shift the entire LightbulbService so its base iid is strictly greater
+/// than any iid in the AccessoryInformationService.
+pub fn fix_lightbulb_iids(bulb: &mut LightbulbAccessory) {
+    let max_info_iid = bulb
+        .accessory_information
+        .get_characteristics()
+        .iter()
+        .map(|c| c.get_id())
+        .max()
+        .unwrap_or(1);
+    let new_base = max_info_iid + 1;
+    let cur_base = bulb.lightbulb.get_id();
+    if new_base <= cur_base {
+        return;
+    }
+    let shift = new_base - cur_base;
+    bulb.lightbulb.set_id(new_base);
+    for c in bulb.lightbulb.get_mut_characteristics() {
+        let id = c.get_id();
+        c.set_id(id + shift);
+    }
 }
 
 fn register_callbacks(bulb: &mut LightbulbAccessory, ctx: &PressContext) {

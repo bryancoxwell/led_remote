@@ -128,9 +128,11 @@ enum Cmd {
         #[arg(long, default_value = "Kitchen Lights")]
         homekit_name: String,
         /// HomeKit setup pin (8 digits, with or without dashes — e.g. 831-94-672).
+        /// Omit on first run to generate a random pin (printed to stderr and
+        /// persisted in the state dir). Once paired, this flag is ignored.
         /// Trivial pins (12345678, all-same digits, etc.) are rejected.
-        #[arg(long, default_value = "831-94-672")]
-        homekit_pin: String,
+        #[arg(long)]
+        homekit_pin: Option<String>,
         /// HomeKit pairing state directory.
         /// Default: $XDG_STATE_HOME/led_remote/homekit or ~/.local/state/led_remote/homekit
         #[arg(long)]
@@ -289,9 +291,13 @@ fn main() -> std::io::Result<()> {
             use led_remote::serve::{ServeConfig, run as serve_run};
             use led_remote::transmit::TxParams;
             let hk = if homekit {
-                let pin = parse_pin(&homekit_pin).map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidInput, e)
-                })?;
+                let pin = homekit_pin
+                    .as_deref()
+                    .map(parse_pin)
+                    .transpose()
+                    .map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, e)
+                    })?;
                 Some(HomekitConfig {
                     name: homekit_name,
                     pin,
