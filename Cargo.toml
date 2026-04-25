@@ -10,8 +10,16 @@ env_logger = "0.11"
 # vs if-addrs both pulled in transitively). ihciah's fork dropped get_if_addrs
 # and bumped libmdns; pin to a known-good commit.
 hap = { git = "https://github.com/ihciah/hap-rs", rev = "c05dbdcc" }
+# vendor/hap-rs is the same c05dbdcc tree with one fix applied: the upstream
+# pair-verify M3 handler calls `SigningKey::from_bytes` on the controller's
+# public key (a `VerifyingKey` is what's needed). The buggy version always
+# fails authentication, leaving iOS to retry once and then bail with
+# kCanceledErr. See vendor/hap-rs/src/transport/http/handler/pair_verify.rs.
 num-complex = "0.4"
 serde_json = "1"
 soapysdr = "0.4"
 tiny_http = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[patch."https://github.com/ihciah/hap-rs"]
+hap = { path = "vendor/hap-rs" }

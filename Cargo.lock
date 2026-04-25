@@ -649,7 +649,6 @@ dependencies = [
 [[package]]
 name = "hap"
 version = "0.1.0-pre.15"
-source = "git+https://github.com/ihciah/hap-rs?rev=c05dbdcc#c05dbdccf4de1ee4dcf68348b6e3a4c082f08967"
 dependencies = [
  "aead",
  "async-trait",
