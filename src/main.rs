@@ -47,7 +47,7 @@ enum Cmd {
     },
     /// Print protocol summary and per-button command codes.
     Info,
-    /// Transmit a button press over an SDR. Requires `--features transmit` and SoapySDR.
+    /// Transmit a button press over an SDR (requires SoapySDR).
     Transmit {
         /// Button name (turn_on, turn_off, ...). Optional when --cmd is given.
         #[arg(required_unless_present = "cmd")]
@@ -83,7 +83,7 @@ enum Cmd {
         #[arg(long, default_value_t = 20.0)]
         trail_ms: f32,
     },
-    /// List SDR devices visible to SoapySDR. Requires `--features transmit`.
+    /// List SDR devices visible to SoapySDR.
     Devices,
 }
 
@@ -188,28 +188,6 @@ fn main() -> std::io::Result<()> {
     }
 }
 
-#[cfg(not(feature = "transmit"))]
-#[allow(clippy::too_many_arguments)]
-fn transmit_cmd(
-    _button: Option<String>,
-    _cmd: Option<u8>,
-    _counter: u8,
-    _repeats: u32,
-    _sample_rate: u32,
-    _frequency: u64,
-    _gain: f64,
-    _device: String,
-    _antenna: Option<String>,
-    _lead_ms: f32,
-    _trail_ms: f32,
-) -> std::io::Result<()> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "build with `--features transmit` (and have libSoapySDR installed) to enable transmission",
-    ))
-}
-
-#[cfg(feature = "transmit")]
 #[allow(clippy::too_many_arguments)]
 fn transmit_cmd(
     button: Option<String>,
@@ -260,15 +238,6 @@ fn transmit_cmd(
     Ok(())
 }
 
-#[cfg(not(feature = "transmit"))]
-fn devices_cmd() -> std::io::Result<()> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "build with `--features transmit` to enumerate SDR devices",
-    ))
-}
-
-#[cfg(feature = "transmit")]
 fn devices_cmd() -> std::io::Result<()> {
     let devs = led_remote::transmit::enumerate_devices()
         .map_err(|e| std::io::Error::other(e.to_string()))?;

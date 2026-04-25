@@ -6,9 +6,22 @@ All six buttons are decoded and reproduced over the air: `turn_on`, `turn_off`, 
 
 ## Requirements
 
-- A SoapySDR-supported SDR. Developed against an Ettus USRP B200mini.
+- A SoapySDR-supported SDR. Tested against an Ettus USRP B200mini (macOS) and a LimeSDR Mini (Linux).
 - Rust (edition 2024).
-- For TX: SoapySDR + the SoapyUHD bridge module.
+- For TX: SoapySDR + the bridge module for your SDR (SoapyUHD for Ettus, SoapyLMS7 for Lime, etc.).
+
+### Linux install (Ubuntu/Debian)
+
+```sh
+sudo apt-get install -y \
+  pkg-config cmake \
+  libsoapysdr-dev soapysdr-tools \
+  soapysdr-module-lms7 limesuite      # for LimeSDR; swap module for your SDR
+```
+
+For other SDRs use the matching `soapysdr0.8-module-*` package (e.g. `soapysdr0.8-module-uhd` for Ettus, `soapysdr0.8-module-hackrf`, `soapysdr0.8-module-bladerf`, …).
+
+Verify with `SoapySDRUtil --find` — it should print your SDR.
 
 ### macOS install
 
@@ -32,12 +45,9 @@ Add the `export` to your shell rc to persist. Verify with `SoapySDRUtil --find` 
 ## Build
 
 ```sh
-cargo build                       # encoder + decoder, no SDR dep
-cargo build --features transmit   # adds the SoapySDR transmitter
-cargo test                        # unit tests + capture round-trip
+cargo build       # encoder, decoder, and SoapySDR transmitter
+cargo test        # unit tests + capture round-trip
 ```
-
-The default build has no SoapySDR dependency, so the encoder, decoder, and CLI subcommands other than `transmit`/`devices` work without any of the brew installs above.
 
 ## Usage
 
@@ -48,14 +58,15 @@ cargo run -- info
 # Encode a button press to a baseband cf32_le file
 cargo run -- encode turn_on -o turn_on.cf32
 
-# Transmit (requires --features transmit)
-cargo run --features transmit -- transmit turn_on -g 50
+# Transmit
+cargo run -- transmit turn_on -g 50                    # B200mini
+cargo run -- transmit turn_on -g 40 -d driver=lime     # LimeSDR
 
 # Probe an unknown command byte (no button arg needed)
-cargo run --features transmit -- transmit --cmd 0x0C -g 50
+cargo run -- transmit --cmd 0x0C -g 50
 
 # List visible SDR devices
-cargo run --features transmit -- devices
+cargo run -- devices
 ```
 
 Useful flags (apply to both `encode` and `transmit`):
@@ -71,9 +82,9 @@ Useful flags (apply to both `encode` and `transmit`):
 
 | flag | meaning | default |
 |---|---|---|
-| `-g dB` | TX gain (B200mini range 0–89.75) | 50 |
+| `-g dB` | TX gain — range is per-SDR (B200mini 0–89.75; LimeSDR Mini −12–64) | 50 |
 | `-f Hz` | carrier frequency | 433870000 |
-| `-d <args>` | SoapySDR device args (e.g. `driver=uhd`) | first available |
+| `-d <args>` | SoapySDR device args (e.g. `driver=uhd`, `driver=lime`) | first available |
 | `--lead-ms` / `--trail-ms` | silence padding around the burst | 5 / 20 |
 
 ## Protocol
@@ -115,7 +126,7 @@ Other observed command bytes:
 src/
   lib.rs        # protocol constants, encoder, decoder, SigMF I/O
   main.rs       # CLI
-  transmit.rs   # SoapySDR TX path (feature = "transmit")
+  transmit.rs   # SoapySDR TX path
 tests/
   round_trip.rs # loads each capture, decodes via Rust, asserts bits match build_packet
 captures/       # 5 SigMF recordings (cf32_le, 500 kHz, 433.87 MHz)

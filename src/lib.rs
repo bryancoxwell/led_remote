@@ -20,7 +20,6 @@
 
 use num_complex::Complex32;
 
-#[cfg(feature = "transmit")]
 pub mod transmit;
 
 pub const DEVICE_ID: u16 = 0xF3A2;

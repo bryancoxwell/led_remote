@@ -1,5 +1,6 @@
-//! SoapySDR-based transmission. Gated behind the `transmit` feature; requires
-//! a working libSoapySDR install (e.g. `brew install pkg-config soapysdr soapyuhd`).
+//! SoapySDR-based transmission. Requires a working libSoapySDR install plus
+//! the bridge module for your SDR (e.g. SoapyUHD for Ettus, SoapyLMS7 for
+//! LimeSDR).
 
 use num_complex::Complex32;
 use soapysdr::{Device, Direction};

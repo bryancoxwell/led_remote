@@ -7,8 +7,4 @@ edition = "2024"
 clap = { version = "4", features = ["derive"] }
 num-complex = "0.4"
 serde_json = "1"
-soapysdr = { version = "0.4", optional = true }
-
-[features]
-default = []
-transmit = ["dep:soapysdr"]
+soapysdr = "0.4"
