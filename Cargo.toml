@@ -2,6 +2,10 @@
 name = "led_remote"
 version = "0.1.0"
 edition = "2024"
+description = "433.92 MHz OOK transmitter for the Rayrun RM12 LED remote, with a Web UI and HomeKit bridge."
+license = "MIT"
+authors = ["Bryan Coxwell <bryancoxwell@gmail.com>"]
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -23,3 +27,26 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [patch."https://github.com/ihciah/hap-rs"]
 hap = { path = "vendor/hap-rs" }
+
+[package.metadata.deb]
+maintainer = "Bryan Coxwell <bryancoxwell@gmail.com>"
+copyright = "2026, Bryan Coxwell <bryancoxwell@gmail.com>"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+led_remote replaces the physical Rayrun RM12 remote with a CLI that emits the
+same 433.92 MHz OOK packets via any SoapySDR-supported SDR. It also exposes
+every button over HTTP and can publish a HomeKit Lightbulb accessory so the
+fixture appears in the iOS Home app."""
+section = "hamradio"
+priority = "optional"
+depends = "$auto, soapysdr-tools"
+recommends = "soapysdr0.8-module-uhd | soapysdr0.8-module-lms7 | soapysdr0.8-module-hackrf | soapysdr0.8-module-bladerf | soapysdr0.8-module-rtlsdr"
+maintainer-scripts = "debian/"
+assets = [
+    ["target/release/led_remote", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/led-remote/README.md", "644"],
+]
+
+[package.metadata.deb.systemd-units]
+enable = true
+start = true

@@ -1,0 +1,15 @@
+[Unit]
+Description=led_remote HomeKit bridge for Rayrun RM12
+Documentation=https://github.com/bryancoxwell/led_remote
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/led_remote serve --homekit -g 50 -d driver=lime --bind 127.0.0.1:8484 --counter-state /var/lib/led_remote/counter --homekit-state-dir /var/lib/led_remote/homekit
+StateDirectory=led_remote
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
